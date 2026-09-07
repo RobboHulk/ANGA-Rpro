@@ -62,6 +62,9 @@ class Trainer():
         self.dataset = args.dataset
         self.device = args.device
         self.missing_type = args.missing_type
+        # 每次训练运行共用同一个时间戳/CSV 日志文件（而不是每个 epoch 各生成一个）
+        self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        Path("./src/metrics").mkdir(parents=True, exist_ok=True)
         self.task = args.dataset
         self.save_path = args.save_path
 
@@ -437,9 +440,8 @@ class Trainer():
         print(f"{Fore.YELLOW}AUROC (missing)  {metrics_missing['auroc']:.4f}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}Valid: 完整样本 {complete_cnt}，缺失样本 {missing_cnt}{Style.RESET_ALL}")
 
-        # ---- 保存指标到 CSV 日志（按时间戳命名） ----
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_path = Path(f"./src/metrics/metrics_{timestamp}.csv")
+        # ---- 保存指标到 CSV 日志（同一次训练运行内所有 epoch 共用一个文件）----
+        log_path = Path(f"./src/metrics/metrics_{self.run_timestamp}.csv")
 
         if not log_path.exists():
             with open(log_path, mode="w", newline="") as f:
