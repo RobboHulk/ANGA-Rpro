@@ -83,8 +83,8 @@ def main():
     # =========================================================================
     # memory_bank_generator = MemoryBankGenerator()
     # memory_bank_generator.run()
-    # image_count = sum(len(files) for _, _, files in os.walk("/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/image"))
-    # text_count= sum(len(files) for _, _, files in os.walk("/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/text"))
+    # image_count = sum(len(files) for _, _, files in os.walk("./dataset/memory_bank/hatememes/image"))
+    # text_count= sum(len(files) for _, _, files in os.walk("./dataset/memory_bank/hatememes/text"))
     # print(image_count, text_count)
     # sys.exit(0)
 
@@ -103,9 +103,9 @@ def main():
     # =========================================================================
     # mcr = MCR()
     # mcr.run()
-    # df_train_ = pd.read_pickle('/data/gzh/MissingWork/MyWork/dataset/hatememes/train.pkl')
-    # df_valid_ = pd.read_pickle('/data/gzh/MissingWork/MyWork/dataset/hatememes/valid.pkl')
-    # df_test_ = pd.read_pickle('/data/gzh/MissingWork/MyWork/dataset/hatememes/test.pkl')
+    # df_train_ = pd.read_pickle('./dataset/hatememes/train.pkl')
+    # df_valid_ = pd.read_pickle('./dataset/hatememes/valid.pkl')
+    # df_test_ = pd.read_pickle('./dataset/hatememes/test.pkl')
     # print(df_train_.shape, df_valid_.shape, df_test_.shape)
     # sys.exit(0)
 

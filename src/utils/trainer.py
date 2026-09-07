@@ -439,7 +439,7 @@ class Trainer():
 
         # ---- 保存指标到 CSV 日志（按时间戳命名） ----
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_path = Path(f"/data/gzh/MissingWork/MyWork/src/metrics/metrics_{timestamp}.csv")
+        log_path = Path(f"./src/metrics/metrics_{timestamp}.csv")
 
         if not log_path.exists():
             with open(log_path, mode="w", newline="") as f:

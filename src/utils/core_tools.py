@@ -20,7 +20,7 @@
     - HatememesMetric           : 评测指标（AUROC + ACC）
 
 注：文件中大量路径硬编码为作者实验机器上的绝对路径
-（/data/gzh/MissingWork/MyWork/...），实际使用时需要按需修改。
+（./...），实际使用时需要按需修改。
 ================================================================================
 """
 import torch.nn.functional as F
@@ -194,26 +194,26 @@ class MemoryBankGenerator(torch.nn.Module):
     def __init__(self):
         super(MemoryBankGenerator, self).__init__()
         # 加载预训练的 ViLT 模型（vilt-b32-mlm），只取 embedding 层
-        pretrained_vilt = ViltModel.from_pretrained('/data/gzh/MissingWork/MyWork/src/model/vilt-b32-mlm')
+        pretrained_vilt = ViltModel.from_pretrained('./src/model/vilt-b32-mlm')
         self.embedding_layer = pretrained_vilt.embeddings
         self._freeze()   # 冻结 embedding 层参数
         # BERT 分词器：把文本转成 token ids
-        self.tokenizer = BertTokenizer.from_pretrained('/data/gzh/MissingWork/MyWork/src/model/vilt-b32-mlm', do_lower_case=True)
+        self.tokenizer = BertTokenizer.from_pretrained('./src/model/vilt-b32-mlm', do_lower_case=True)
         # ViLT 图像处理器：把图像转成 pixel_values / pixel_mask
-        self.image_processor = ViltImageProcessor.from_pretrained('/data/gzh/MissingWork/MyWork/src/model/vilt-b32-mlm')
+        self.image_processor = ViltImageProcessor.from_pretrained('./src/model/vilt-b32-mlm')
         self.dataset = 'hatememes'
         self.max_text_len = 128   # 文本 token 数上限
         self.max_image_len = 145  # 图像 patch 数上限（1 CLS + 144 patch）
         # 读取三个划分的 DataFrame
-        self.df_train = pd.read_pickle(rf'/data/gzh/MissingWork/MyWork/dataset/{self.dataset}/train.pkl')
-        self.df_test = pd.read_pickle(rf'/data/gzh/MissingWork/MyWork/dataset/{self.dataset}/test.pkl')
-        self.df_valid = pd.read_pickle(rf'/data/gzh/MissingWork/MyWork/dataset/{self.dataset}/valid.pkl')
+        self.df_train = pd.read_pickle(rf'./dataset/{self.dataset}/train.pkl')
+        self.df_test = pd.read_pickle(rf'./dataset/{self.dataset}/test.pkl')
+        self.df_valid = pd.read_pickle(rf'./dataset/{self.dataset}/valid.pkl')
         self.batch_size = 64
         # 创建保存记忆库特征（text/image）的目录
-        if not os.path.exists(f'/data/gzh/MissingWork/MyWork/dataset/memory_bank/{self.dataset}/text'):
-            os.makedirs(f'/data/gzh/MissingWork/MyWork/dataset/memory_bank/{self.dataset}/text')
-        if not os.path.exists(f'/data/gzh/MissingWork/MyWork/dataset/memory_bank/{self.dataset}/image'):
-            os.makedirs(f'/data/gzh/MissingWork/MyWork/dataset/memory_bank/{self.dataset}/image')
+        if not os.path.exists(f'./dataset/memory_bank/{self.dataset}/text'):
+            os.makedirs(f'./dataset/memory_bank/{self.dataset}/text')
+        if not os.path.exists(f'./dataset/memory_bank/{self.dataset}/image'):
+            os.makedirs(f'./dataset/memory_bank/{self.dataset}/image')
 
     def _freeze(self):
         """冻结 ViLT embedding 层，不参与梯度更新。"""
@@ -258,7 +258,7 @@ class MemoryBankGenerator(torch.nn.Module):
         # ---- 图像编码：逐张打开、缩放 ----
         images = []
         for id in ids:
-            image_path = fr'/data/gzh/MissingWork/MyWork/dataset/{self.dataset}/image/{id}.png'
+            image_path = fr'./dataset/{self.dataset}/image/{id}.png'
             image = Image.open(image_path).convert("RGB")
             image = self._resize_image(image)
             images.append(image)
@@ -274,8 +274,8 @@ class MemoryBankGenerator(torch.nn.Module):
 
         # ---- 逐样本保存特征为 .npy（文件名 = item_id） ----
         for i, id in enumerate(ids):
-            np.save(f'/data/gzh/MissingWork/MyWork/dataset/memory_bank/{self.dataset}/text/{id}.npy', text_emb[i].detach().numpy())
-            np.save(f'/data/gzh/MissingWork/MyWork/dataset/memory_bank/{self.dataset}/image/{id}.npy', image_emb[i].detach().numpy())
+            np.save(f'./dataset/memory_bank/{self.dataset}/text/{id}.npy', text_emb[i].detach().numpy())
+            np.save(f'./dataset/memory_bank/{self.dataset}/image/{id}.npy', image_emb[i].detach().numpy())
 
     def run(self):
         """对 train（以及非 food101 时的 valid）集合逐 batch 生成记忆库。"""
@@ -311,18 +311,18 @@ class MCR():
         self.dataset = 'hatememes'
         self.batch_size = 64
         self.top_k = 20                    # 检索返回的邻居数量上限
-        self.img_path = os.path.join('/data/gzh/MissingWork/MyWork/dataset', self.dataset, 'image')
+        self.img_path = os.path.join('./dataset', self.dataset, 'image')
         self.img_name_list = os.listdir(self.img_path)   # 图像文件名列表
         self.device = "cuda:5"
         # 加载 CLIP 模型与处理器（用于图像/文本编码）
-        self.pretrained_model = AutoModel.from_pretrained('/data/gzh/MissingWork/MyWork/src/model/clip-vit-large-patch14-336')
-        self.processor = AutoProcessor.from_pretrained('/data/gzh/MissingWork/MyWork/src/model/clip-vit-large-patch14-336')
+        self.pretrained_model = AutoModel.from_pretrained('./src/model/clip-vit-large-patch14-336')
+        self.processor = AutoProcessor.from_pretrained('./src/model/clip-vit-large-patch14-336')
         self.pretrained_model = self.pretrained_model.to(self.device)
 
         # 读取三个划分
-        self.df_train = pd.read_pickle(os.path.join('/data/gzh/MissingWork/MyWork/dataset', self.dataset, 'train.pkl'))
-        self.df_test = pd.read_pickle(os.path.join('/data/gzh/MissingWork/MyWork/dataset', self.dataset, 'test.pkl'))
-        self.df_valid = pd.read_pickle(os.path.join('/data/gzh/MissingWork/MyWork/dataset', self.dataset, 'valid.pkl'))
+        self.df_train = pd.read_pickle(os.path.join('./dataset', self.dataset, 'train.pkl'))
+        self.df_test = pd.read_pickle(os.path.join('./dataset', self.dataset, 'test.pkl'))
+        self.df_valid = pd.read_pickle(os.path.join('./dataset', self.dataset, 'valid.pkl'))
 
     def _compute_similarity_in_batches(self, query_vectors, memory_bank, memory_bank_id, memory_bank_label):
         """
@@ -476,9 +476,9 @@ class MCR():
         self.df_valid[f'i2i_id_list'], self.df_valid[f'i2i_sims_list'], self.df_valid['i2i_label_list'] = self._compute_similarity_in_batches(valid_q_i, r_v_i, memory_bank_id, memory_bank_label)
 
         # ---- 保存检索结果 ----
-        self.df_train.to_pickle(os.path.join(os.path.join('/data/gzh/MissingWork/MyWork/dataset', self.dataset, 'train.pkl')))
-        self.df_valid.to_pickle(os.path.join(os.path.join('/data/gzh/MissingWork/MyWork/dataset', self.dataset, 'valid.pkl')))
-        self.df_test.to_pickle(os.path.join(os.path.join('/data/gzh/MissingWork/MyWork/dataset', self.dataset, 'test.pkl')))
+        self.df_train.to_pickle(os.path.join(os.path.join('./dataset', self.dataset, 'train.pkl')))
+        self.df_valid.to_pickle(os.path.join(os.path.join('./dataset', self.dataset, 'valid.pkl')))
+        self.df_test.to_pickle(os.path.join(os.path.join('./dataset', self.dataset, 'test.pkl')))
 
         print(f"==> Saved retrieval results for {self.dataset}!")
 
@@ -487,7 +487,7 @@ class MCR():
         self._retrieval_vector_generation()
         self._within_retrieval()
 
-def generate_missing_table(missing_rate, missing_type, dataset, base_file_path='/data/gzh/MissingWork/MyWork/dataset/missing_table', **kargs):
+def generate_missing_table(missing_rate, missing_type, dataset, base_file_path='./dataset/missing_table', **kargs):
     """
     生成"缺失掩码表"（missing_table.pkl）。
 
@@ -525,7 +525,7 @@ def generate_missing_table(missing_rate, missing_type, dataset, base_file_path='
         print("File already exists, regenerating new missing column...")
     else:
         # 表不存在：从 train/valid/test 三个划分取出 item_id 作为骨架
-        df = pd.concat([pd.read_pickle(f'/data/gzh/MissingWork/MyWork/dataset/{dataset}/{split}.pkl') for split in ['train', 'valid', 'test']])
+        df = pd.concat([pd.read_pickle(f'./dataset/{dataset}/{split}.pkl') for split in ['train', 'valid', 'test']])
         df = df[['item_id']]
         print("File does not exist, generating new missing table and column...")
 
@@ -565,7 +565,7 @@ def resize_image(img, size=(384, 384)):
 
 def load_model(**kargs):
     """工厂函数：加载预训练 ViLT 作为 backbone，并实例化 ANGA 模型。"""
-    pretrained_vlit = ViltModel.from_pretrained('/data/gzh/MissingWork/MyWork/src/model/vilt-b32-mlm')
+    pretrained_vlit = ViltModel.from_pretrained('./src/model/vilt-b32-mlm')
     model = Model(vilt=pretrained_vlit, **kargs)
     return model
 
@@ -613,9 +613,9 @@ class Collator:
 
     def __init__(self, max_text_len, **kargs):
         # 加载 ViLT 图像处理器（负责缩放/归一化/pad 图像）
-        self.image_processor = ViltImageProcessor.from_pretrained('/data/gzh/MissingWork/MyWork/src/model/vilt-b32-mlm')
+        self.image_processor = ViltImageProcessor.from_pretrained('./src/model/vilt-b32-mlm')
         # 加载 BERT 分词器（do_lower_case=True 表示转小写）
-        self.tokenizer = BertTokenizer.from_pretrained('/data/gzh/MissingWork/MyWork/src/model/vilt-b32-mlm', do_lower_case=True)
+        self.tokenizer = BertTokenizer.from_pretrained('./src/model/vilt-b32-mlm', do_lower_case=True)
         self.max_text_len = max_text_len
 
     def __call__(self, batch):

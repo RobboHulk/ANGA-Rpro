@@ -30,13 +30,13 @@ class HatememesDataset(torch.utils.data.Dataset):
     def __init__(self, split, max_text_len,  missing_type, missing_rate, k, **kargs):
         super().__init__()
         # 1️⃣ 读取预处理好的数据划分（split ∈ {train, valid, test}）
-        dataframe = pd.read_pickle(os.path.join('/data/gzh/MissingWork/MyWork/dataset/hatememes', f'{split}.pkl'))
+        dataframe = pd.read_pickle(os.path.join('./dataset/hatememes', f'{split}.pkl'))
 
         # 依据缺失类型选择对应的缺失掩码表（single / both）
         if missing_type == "Image" or missing_type == "Text":
-            missing_table = pd.read_pickle('/data/gzh/MissingWork/MyWork/dataset/missing_table/single/hatememes/missing_table.pkl')
+            missing_table = pd.read_pickle('./dataset/missing_table/single/hatememes/missing_table.pkl')
         elif missing_type == "Both":
-            missing_table = pd.read_pickle('/data/gzh/MissingWork/MyWork/dataset/missing_table/both/hatememes/missing_table.pkl')
+            missing_table = pd.read_pickle('./dataset/missing_table/both/hatememes/missing_table.pkl')
 
         # 按 item_id 合并缺失掩码；合并后 DataFrame 形状约为 (8500/1000, 13)
         dataframe = pd.merge(dataframe, missing_table, on='item_id')
@@ -58,7 +58,7 @@ class HatememesDataset(torch.utils.data.Dataset):
         k = self.k
         text = self.text_list[index]
         # 打开梗图图像并统一为 RGB
-        image = Image.open(fr'/data/gzh/MissingWork/MyWork/dataset/hatememes/image/{self.id_list[index]}.png').convert("RGB")
+        image = Image.open(fr'./dataset/hatememes/image/{self.id_list[index]}.png').convert("RGB")
         r_t_list = []   # 检索到的文本特征列表
         r_i_list = []   # 检索到的图像特征列表
 
@@ -70,9 +70,9 @@ class HatememesDataset(torch.utils.data.Dataset):
 
             # 取出前 top-k 个与该样本图像相似度最高的 item_id，并提取对应的图像特征和文本特征
             for i in i2i_list[:k]:
-                r_i = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/image/{i}.npy')
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
-                r_t = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/text/{i}.npy')
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
 
             # 提取全部标签
@@ -83,9 +83,9 @@ class HatememesDataset(torch.utils.data.Dataset):
             t2t_list = self.t2t_list[index]
 
             for i in t2t_list[:k]:
-                r_t = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/text/{i}.npy')
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
-                r_i = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/image/{i}.npy')
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
             r_l_list = self.t2t_r_l_list_list[index]
 
@@ -95,11 +95,11 @@ class HatememesDataset(torch.utils.data.Dataset):
             t2t_list = self.t2t_list[index]
 
             for i in i2i_list[:k]:
-                r_i = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/image/{i}.npy')
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
 
             for i in t2t_list[:k]:
-                r_t = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/text/{i}.npy')
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
             r_l_list = self.i2i_r_l_list_list[index]
 
@@ -108,9 +108,9 @@ class HatememesDataset(torch.utils.data.Dataset):
             text = "I love deep learning" * 1024
             i2i_list = self.i2i_list[index]
             for i in i2i_list[:k]:
-                r_i = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/image/{i}.npy')
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
-                r_t = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/text/{i}.npy')
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
             r_l_list = self.i2i_r_l_list_list[index]
 
@@ -118,9 +118,9 @@ class HatememesDataset(torch.utils.data.Dataset):
         elif self.missing_type == "Both" and self.missing_mask_list[index] == 1:
             t2t_list = self.t2t_list[index]
             for i in t2t_list[:k]:
-                r_t = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/text/{i}.npy')
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
-                r_i = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/image/{i}.npy')
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
             r_l_list = self.t2t_r_l_list_list[index]
 
@@ -130,11 +130,11 @@ class HatememesDataset(torch.utils.data.Dataset):
             t2t_list = self.t2t_list[index]
 
             for i in i2i_list[:k]:
-                r_i = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/image/{i}.npy')
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
 
             for i in t2t_list[:k]:
-                r_t = np.load(fr'/data/gzh/MissingWork/MyWork/dataset/memory_bank/hatememes/text/{i}.npy')
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
 
             r_l_list = self.i2i_r_l_list_list[index]

@@ -78,7 +78,7 @@ def main():
         parser.add_argument('--batch_size', type=int, default=64)                          # 批大小
         parser.add_argument('--num_workers', type=int, default=16)                         # DataLoader 的并行加载进程数
         parser.add_argument('--patience', type=int, default=10)                            # 早停耐心值（连续多少轮无提升则停止）
-        parser.add_argument('--save_path', type=str, default="/data/gzh/MissingWork/MyWork/src/checkpoints")  # 模型保存目录
+        parser.add_argument('--save_path', type=str, default="./src/checkpoints")  # 模型保存目录
         parser.add_argument('--regenerate_missing_table', type=bool, default=False)        # 是否重新生成缺失掩码表
 
         args = parser.parse_args()
@@ -102,7 +102,7 @@ def main():
         sys.exit(0)
 
     # # ----------（调试用）加载并查看 missing_table.pkl 的内容 ----------
-    # file_path = '/data/gzh/MissingWork/MyWork/dataset/missing_table/both/hatememes/missing_table.pkl'  # 修改为你的文件路径
+    # file_path = './dataset/missing_table/both/hatememes/missing_table.pkl'  # 修改为你的文件路径
     # df = pd.read_pickle(file_path)
     # total_items = df['item_id'].nunique()
     # missing_counts = df['missing_mask_7'].value_counts()
