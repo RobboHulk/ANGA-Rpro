@@ -72,7 +72,7 @@ def main():
         parser.add_argument('--warmup_rate', type=float, default=0.1)                      # 预热步数占总步数的比例
 
         # ---------- 全局参数（Global parameters） ----------
-        parser.add_argument('--device', type=str, default="cuda:4")                        # 使用的 GPU 设备
+        parser.add_argument('--device', type=str, default="cuda:0")                        # 使用的 GPU 设备
         parser.add_argument('--seed', type=int, default=2024)                              # 随机种子
         parser.add_argument('--epochs', type=int, default=20)                              # 训练总轮数
         parser.add_argument('--batch_size', type=int, default=64)                          # 批大小

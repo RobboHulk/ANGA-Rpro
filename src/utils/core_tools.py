@@ -313,7 +313,7 @@ class MCR():
         self.top_k = 20                    # 检索返回的邻居数量上限
         self.img_path = os.path.join('./dataset', self.dataset, 'image')
         self.img_name_list = os.listdir(self.img_path)   # 图像文件名列表
-        self.device = "cuda:5"
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         # 加载 CLIP 模型与处理器（用于图像/文本编码）
         self.pretrained_model = AutoModel.from_pretrained('./src/model/clip-vit-large-patch14-336')
         self.processor = AutoProcessor.from_pretrained('./src/model/clip-vit-large-patch14-336')
