@@ -1,0 +1,28 @@
+# Datasets & generated artifacts (transferred directly to the server, not via git)
+dataset/
+memory_bank/
+checkpoints/
+outputs/
+logs/
+*.pkl
+*.npy
+*.pt
+*.pth
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# Environment
+.env
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/

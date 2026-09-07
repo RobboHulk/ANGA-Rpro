@@ -1,0 +1,45 @@
+# =============================================================================
+# ANGA 模型配置文件（YAML）
+# -----------------------------------------------------------------------------
+# 注：实际的训练入口是 src/train.py，它使用 argparse 命令行参数而非本 YAML。
+# 本文件作为配置的集中记录/参考，字段与 train.py 中的参数一一对应。
+# 缺失掩码语义（与 train.py 一致）：
+#   one modality missing (单模态缺失): 0 缺失, 1 不缺失
+#   two modality missing (双模态缺失): 0 缺失文本, 1 缺失图像, 2 都不缺失
+# =============================================================================
+
+# ---------- 模型参数 ----------
+model_para:
+  model: "RAGPT"                                  # 模型名（历史遗留，实际使用 ANGA）
+  backbone: "vilt"                                # 骨干网络：ViLT
+  vilt_weights: "src/model/vilt/weights/mlm"      # 预训练 ViLT 权重路径
+  prompt_position: 0                              # 动态提示插入到 encoder 第几层
+  prompt_length: 1                                # 每类提示的 token 数
+  dropout_rate: 0.2                               # MMG 中的 dropout 比例
+
+# ---------- 数据参数 ----------
+data_para:
+  dataset: "mmimdb" # hatememes, mmimdb, food101  # 数据集名称
+  missing_type: "Both" # "Both" "Text" "Image"    # 缺失类型
+  missing_rate: 0.7                               # 缺失比例（70% 样本缺失）
+  max_text_len: 128                               # 文本序列最大长度
+  max_image_len: 145                              # 图像 patch 序列最大长度
+  k: 3                                            # 检索邻居数 Top-K
+
+# ---------- 优化器参数 ----------
+optim_para:
+  name: "AdamW"                                   # 优化器
+  lr: 1e-3                                        # 学习率
+  weight_decay: 2e-2 #2e-3 has powerful results   # 权重衰减（2e-3 效果更强）
+  use_warmup: True                                # 是否使用学习率预热
+  warmup_rate: 0.1                                # 预热步数占比
+
+# ---------- 全局参数 ----------
+device: "cuda:0"                                  # 使用的 GPU
+seed: 2024                                        # 随机种子
+epochs: 20                                        # 训练轮数
+batch_size: 64                                    # 批大小
+num_workers: 16                                   # DataLoader 进程数
+patience: 10                                      # 早停耐心值
+save_path: "checkpoints"                          # 模型保存目录
+regenerate_missing_table: True                    # 是否重新生成缺失掩码表

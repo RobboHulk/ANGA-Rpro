@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /Users/hulkqin/Desktop/ANGA/dataset/mmimdb/raw)",
+      "Bash(curl -L -o mmimdb.tar.gz \"https://archive.org/download/mmimdb/mmimdb.tar.gz\" --progress-bar)",
+      "Bash(tee /private/tmp/claude-501/-Users-hulkqin-Desktop-ANGA/eae6dd56-6c2b-4706-8bf0-7d172cb99cb3/scratchpad/mmimdb_download.log)",
+      "Bash(pip show *)",
+      "Bash(python3 -c \"import kaggle\")",
+      "Bash(pip install *)",
+      "Bash(kaggle --version)",
+      "Bash(python3 -c \"import kaggle.api.kaggle_api_extended as k; import inspect; src = inspect.getsource\\(k.KaggleApi.authenticate\\); print\\(src\\)\")",
+      "Bash(grep -n \"access_token\\\\|kaggle\\\\.json\\\\|KAGGLE_API_TOKEN\\\\|def get_config_file\\\\|CONFIG_NAME\" /opt/miniconda3/lib/python3.13/site-packages/kagglesdk/kaggle_creds.py | head -40)",
+      "Bash(grep -n \"kaggle.json\\\\|KAGGLE_CONFIG\\\\|username\\\\|def read_config\\\\|CREDENTIALS_TOKEN\\\\|def _config_file\\\\|def authenticate\" /opt/miniconda3/lib/python3.13/site-packages/kaggle/api/kaggle_api_extended.py | head -60)",
+      "Bash(grep -rn \"def get_access_token_from_env\" /opt/miniconda3/lib/python3.13/site-packages/ 2>/dev/null)",
+      "Bash(python3 -c ' *)",
+      "Bash(kaggle datasets *)",
+      "Bash(kill %1)",
+      "Bash(pkill -f \"kaggle datasets download -d williamberrios\")",
+      "Bash(rm -rf /Users/hulkqin/Desktop/ANGA/dataset/hatememes/raw_test_seen/* *)",
+      "Bash(mkdir -p /Users/hulkqin/Desktop/ANGA/dataset/hatememes/image *)",
+      "Bash(tar -tzf /Users/hulkqin/Desktop/ANGA/dataset/mmimdb/raw/mmimdb.tar.gz)",
+      "Bash(tar -xzf mmimdb.tar.gz)",
+      "Bash(mkdir -p /Users/hulkqin/Desktop/ANGA/dataset/food101/meta_data *)"
+    ]
+  }
+}
