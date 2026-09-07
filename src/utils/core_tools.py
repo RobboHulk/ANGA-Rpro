@@ -725,6 +725,7 @@ class EarlyStopping:
 
     def save_checkpoint(self, model):
         """保存模型权重"""
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
         torch.save(model.state_dict(), self.path)
 
 
