@@ -1,9 +1,21 @@
+# torch: install separately with a CUDA build matching your driver, e.g.
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+# (see docs/DATASETS.md / README for details). Not pinned here since the
+# right build depends on the machine's NVIDIA driver / CUDA version.
 torch
 tqdm
 torchmetrics==0.9.3
-transformers
+# transformers: pinned <5 because src/model/vilt/modeling_vilt.py is a
+# vendored, unmodified-API copy of an older transformers internal
+# implementation (imports transformers.pytorch_utils.find_pruneable_heads_and_indices,
+# which was removed in transformers 5.x). transformers>=5 breaks this import.
+transformers==4.41.2
 hydra-core
 omegaconf
 colorama
 pillow
 pandas
+scikit-learn
+# setuptools<81: torchmetrics==0.9.3 imports pkg_resources at import time,
+# which modern setuptools no longer ships by default.
+setuptools<81
