@@ -27,11 +27,6 @@ import pandas as pd
 from PIL import Image
 
 class HatememesDataset(torch.utils.data.Dataset):
-    # 记忆库特征在 train/valid/test 三个 split 之间是共享的同一份文件（由 MCR 统一构建），
-    # 用类级别缓存只加载一次，避免三个 Dataset 实例各自把 ~7GB 的 .npy 都读进内存
-    _mb_text_cache = None
-    _mb_image_cache = None
-
     def __init__(self, split, max_text_len,  missing_type, missing_rate, k, **kargs):
         super().__init__()
         # 1️⃣ 读取预处理好的数据划分（split ∈ {train, valid, test}）
@@ -58,32 +53,18 @@ class HatememesDataset(torch.utils.data.Dataset):
         self.i2i_r_l_list_list = dataframe['i2i_label_list'].tolist()
         self.t2t_r_l_list_list = dataframe['t2t_label_list'].tolist()
         self.missing_mask_list = dataframe[f'missing_mask_{int(10 * missing_rate)}'].tolist()
-
-        # ---- 提速：把图片和记忆库特征一次性预加载进内存，避免每个 epoch 重复读盘 ----
-        # 图片：数据集不大（HateMemes 共 1 万张），预解码缓存在本实例上
-        self._image_cache = {}
-        for item_id in set(self.id_list):
-            img = Image.open(fr'./dataset/hatememes/image/{item_id}.png').convert("RGB").copy()
-            self._image_cache[item_id] = img
-
-        # 记忆库：train/valid/test 共用同一份文件，用类级别缓存只加载一次
-        if HatememesDataset._mb_text_cache is None:
-            text_dir = './dataset/memory_bank/hatememes/text'
-            image_dir = './dataset/memory_bank/hatememes/image'
-            HatememesDataset._mb_text_cache = {
-                fn[:-4]: np.load(os.path.join(text_dir, fn)) for fn in os.listdir(text_dir)
-            }
-            HatememesDataset._mb_image_cache = {
-                fn[:-4]: np.load(os.path.join(image_dir, fn)) for fn in os.listdir(image_dir)
-            }
-        self._mb_text_cache = HatememesDataset._mb_text_cache
-        self._mb_image_cache = HatememesDataset._mb_image_cache
+        # 注：曾尝试把图片/记忆库特征预加载进内存缓存来提速，但 fork 出的 DataLoader
+        # worker 一读取缓存里的 Python 对象就会触发引用计数写入，实际上破坏了
+        # copy-on-write 共享，导致每个 worker 都真实复制一份缓存，多个 worker/多个
+        # DataLoader 叠加后把这台服务器的 cgroup 内存（120GB）几乎打满，在 Testing
+        # 阶段新开 worker 时被 OOM 杀掉。已撤销，改回按需读盘（更稳，也更适合这种
+        # persistent_workers+16 worker 的配置）。
 
     def __getitem__(self, index):
         k = self.k
         text = self.text_list[index]
-        # 梗图图像已在 __init__ 里预解码缓存，这里直接查表
-        image = self._image_cache[self.id_list[index]]
+        # 打开梗图图像并统一为 RGB
+        image = Image.open(fr'./dataset/hatememes/image/{self.id_list[index]}.png').convert("RGB")
         r_t_list = []   # 检索到的文本特征列表
         r_i_list = []   # 检索到的图像特征列表
 
@@ -95,9 +76,9 @@ class HatememesDataset(torch.utils.data.Dataset):
 
             # 取出前 top-k 个与该样本图像相似度最高的 item_id，并提取对应的图像特征和文本特征
             for i in i2i_list[:k]:
-                r_i = self._mb_image_cache[i]
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
-                r_t = self._mb_text_cache[i]
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
 
             # 提取全部标签
@@ -108,9 +89,9 @@ class HatememesDataset(torch.utils.data.Dataset):
             t2t_list = self.t2t_list[index]
 
             for i in t2t_list[:k]:
-                r_t = self._mb_text_cache[i]
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
-                r_i = self._mb_image_cache[i]
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
             r_l_list = self.t2t_r_l_list_list[index]
 
@@ -120,11 +101,11 @@ class HatememesDataset(torch.utils.data.Dataset):
             t2t_list = self.t2t_list[index]
 
             for i in i2i_list[:k]:
-                r_i = self._mb_image_cache[i]
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
 
             for i in t2t_list[:k]:
-                r_t = self._mb_text_cache[i]
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
             r_l_list = self.i2i_r_l_list_list[index]
 
@@ -133,9 +114,9 @@ class HatememesDataset(torch.utils.data.Dataset):
             text = "I love deep learning" * 1024
             i2i_list = self.i2i_list[index]
             for i in i2i_list[:k]:
-                r_i = self._mb_image_cache[i]
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
-                r_t = self._mb_text_cache[i]
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
             r_l_list = self.i2i_r_l_list_list[index]
 
@@ -143,9 +124,9 @@ class HatememesDataset(torch.utils.data.Dataset):
         elif self.missing_type == "Both" and self.missing_mask_list[index] == 1:
             t2t_list = self.t2t_list[index]
             for i in t2t_list[:k]:
-                r_t = self._mb_text_cache[i]
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
-                r_i = self._mb_image_cache[i]
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
             r_l_list = self.t2t_r_l_list_list[index]
 
@@ -155,11 +136,11 @@ class HatememesDataset(torch.utils.data.Dataset):
             t2t_list = self.t2t_list[index]
 
             for i in i2i_list[:k]:
-                r_i = self._mb_image_cache[i]
+                r_i = np.load(fr'./dataset/memory_bank/hatememes/image/{i}.npy')
                 r_i_list.append(r_i.tolist())
 
             for i in t2t_list[:k]:
-                r_t = self._mb_text_cache[i]
+                r_t = np.load(fr'./dataset/memory_bank/hatememes/text/{i}.npy')
                 r_t_list.append(r_t.tolist())
 
             r_l_list = self.i2i_r_l_list_list[index]
