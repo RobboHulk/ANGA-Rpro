@@ -771,8 +771,9 @@ def get_optim(max_steps, model, lr, weight_decay, warmup_rate=0.1, use_warmup=Fa
           之后线性衰减到 0（linear decay）。
         - 若 use_warmup=False：从 lr 线性衰减到 0。
     """
-    # fused AdamW 要求所有待优化参数都在 CUDA 上；纯提速，数学上与非 fused 版等价
-    fused_ok = torch.cuda.is_available() and all(p.is_cuda for p in model.parameters())
+    # fused AdamW 要求所有待优化参数都在 CUDA 上、且不支持复数张量
+    # （MMG.W 是 torch.cfloat 复数参数，见 model/modules.py），否则报错
+    fused_ok = torch.cuda.is_available() and all(p.is_cuda and not p.is_complex() for p in model.parameters())
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, fused=fused_ok)
 
     # Compute warmup steps only if warmup is enabled
