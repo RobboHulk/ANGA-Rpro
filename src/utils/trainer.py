@@ -133,7 +133,9 @@ class Trainer():
         _loader_kwargs = dict(
             pin_memory=(str(args.device).startswith("cuda")),
             persistent_workers=(args.num_workers > 0),
-            prefetch_factor=(4 if args.num_workers > 0 else None),
+            # 注：曾尝试 prefetch_factor=4 提速，但这台服务器进程 fd 上限只有 1024，
+            # 3 个 DataLoader × 16 worker 持久化 + 更深的预取队列会把在途张量的共享内存
+            # 文件描述符耗尽，导致 BrokenPipeError；保留默认 prefetch_factor（2）更稳妥。
         )
         self.train_data_loader = DataLoader(
             dataset=train_dataset,
