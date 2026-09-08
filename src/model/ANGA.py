@@ -64,12 +64,16 @@ class ANGA(torch.nn.Module):
                  prompt_length: int,        # 每类提示的 token 数
                  dropout_rate: float,       # MMG 中的 dropout 比例
                  hs=768,                    # 隐藏维度（ViLT-B 为 768）
+                 use_mir: bool = True,      # 消融开关：是否用 MIR（检索重建）补全缺失模态
+                 use_sea: bool = True,      # 消融开关：是否用 SEA（CAP 动态提示）
                  **kargs):
         super(ANGA, self).__init__()
         self.device = device
         self.max_text_len = max_text_len
         self.missing_type = missing_type
         self.task_id = task_id
+        self.use_mir = use_mir
+        self.use_sea = use_sea
         # ---- 从预训练 ViLT 中取出各子模块 ----
         self.embedding_layer = vilt.embeddings   # 文本/图像嵌入层
         self.encoder_layer = vilt.encoder.layer  # Transformer 编码层的 ModuleList（12 层）
@@ -94,19 +98,23 @@ class ANGA(torch.nn.Module):
         self.pooler = vilt.pooler
 
         # ---- 依据缺失类型构建 MMG（用于补全缺失模态）----
-        if missing_type == "Text":
-            # 只缺文本：一个 MMG，序列长度为文本长度
-            self.MMG = MMG(n = max_text_len, d = hs,dropout_rate=dropout_rate)
-        elif missing_type == "Image":
-            # 只缺图像：一个 MMG，序列长度为图像 patch 数
-            self.MMG = MMG(n = max_image_len, d = hs,dropout_rate=dropout_rate)
-        elif missing_type == "Both":
-            # 文本、图像都可能缺失：分别建两个 MMG
-            self.MMG_t = MMG(n = max_text_len, d = hs,dropout_rate=dropout_rate)
-            self.MMG_i = MMG(n = max_image_len, d = hs,dropout_rate=dropout_rate)
+        # 消融：use_mir=False 时不构建任何 MMG，缺失模态在 forward 中用零向量占位
+        if self.use_mir:
+            if missing_type == "Text":
+                # 只缺文本：一个 MMG，序列长度为文本长度
+                self.MMG = MMG(n = max_text_len, d = hs,dropout_rate=dropout_rate)
+            elif missing_type == "Image":
+                # 只缺图像：一个 MMG，序列长度为图像 patch 数
+                self.MMG = MMG(n = max_image_len, d = hs,dropout_rate=dropout_rate)
+            elif missing_type == "Both":
+                # 文本、图像都可能缺失：分别建两个 MMG
+                self.MMG_t = MMG(n = max_text_len, d = hs,dropout_rate=dropout_rate)
+                self.MMG_i = MMG(n = max_image_len, d = hs,dropout_rate=dropout_rate)
 
         # ---- 定义动态提示生成器（CAP）----
-        self.dynamic_prompt = CAP(prompt_length=prompt_length)
+        # 消融：use_sea=False 时不构建 CAP，forward 中不生成/注入 t_prompt/i_prompt
+        if self.use_sea:
+            self.dynamic_prompt = CAP(prompt_length=prompt_length)
 
         # ---- 定义分类头 ----
         self.classifier = nn.Linear(768, cls_num)   # 池化表征 → 类别 logits
@@ -169,9 +177,10 @@ class ANGA(torch.nn.Module):
         image_emb = embedding[:, self.max_text_len:, :]
 
         # 依据缺失类型，用 MMG 重建缺失模态
+        # 消融：use_mir=False 时不做检索重建，缺失位置用零向量占位（论文所述"虚拟值"）
         if self.missing_type == "Text":
             # 仅缺文本：用检索到的文本特征聚合出重建文本表征
-            recovered_t = self.MMG(r_t_list)  # (64,128,768) # 仅检索平均
+            recovered_t = self.MMG(r_t_list) if self.use_mir else torch.zeros_like(text_emb)  # (64,128,768)
             # 把缺失掩码扩展成 (64,128,768)，作为"保真/替换"的选择开关
             missing_mask_t = missing_mask.view(-1, 1, 1).expand(-1, 128, self.hs)  # (64,128,768)
             # 缺失位置(mask=0)用重建值替换，未缺失位置(mask=1)保留原始值
@@ -179,14 +188,14 @@ class ANGA(torch.nn.Module):
 
         elif self.missing_type == "Image":
             # 仅缺图像：用检索到的图像特征聚合出重建图像表征
-            recovered_i = self.MMG(r_i_list)  # (64,145,768) # 仅检索平均
+            recovered_i = self.MMG(r_i_list) if self.use_mir else torch.zeros_like(image_emb)  # (64,145,768)
             missing_mask_i = missing_mask.view(-1, 1, 1).expand(-1, 145, self.hs)  # (64,145,768)
             image_emb = image_emb * missing_mask_i + recovered_i * (1-missing_mask_i)  # (64,145,768)
 
         elif self.missing_type == "Both":
             # 双模态缺失：文本、图像分别重建
-            recovered_t = self.MMG_t(r_t_list)
-            recovered_i = self.MMG_i(r_i_list)
+            recovered_t = self.MMG_t(r_t_list) if self.use_mir else torch.zeros_like(text_emb)
+            recovered_i = self.MMG_i(r_i_list) if self.use_mir else torch.zeros_like(image_emb)
             # 从 both 掩码（0=缺文本,1=缺图像,2=完整）推导出各自的缺失标志：
             # 文本缺失标志：mask==0 → 缺文本（对应 t_missing_mask=0）
             t_missing_mask = [0 if i == 0 else 1 for i in missing_mask]
@@ -203,30 +212,38 @@ class ANGA(torch.nn.Module):
         # ---- 第 2 步：构建动态提示 ----
         # 由 CAP 生成文本提示与图像提示（各 prompt_length 个 token）
         # 注意 forward 返回顺序为 (文本提示, 图像提示)
-        t_prompt,i_prompt = self.dynamic_prompt(r_i=r_i_list, r_t=r_t_list, T=text_emb, V=image_emb)  # (64,1,768) (64,1,768)
-        t_prompt = torch.mean(t_prompt, dim=1)  # (64,768) 文本提示平均
-        i_prompt = torch.mean(i_prompt, dim=1)  # (64,768) 图像提示平均
+        # 消融：use_sea=False 时不生成/注入 CAP 的动态提示
+        if self.use_sea:
+            t_prompt,i_prompt = self.dynamic_prompt(r_i=r_i_list, r_t=r_t_list, T=text_emb, V=image_emb)  # (64,1,768) (64,1,768)
+            t_prompt = torch.mean(t_prompt, dim=1).unsqueeze(1)  # (64,1,768) 文本提示平均
+            i_prompt = torch.mean(i_prompt, dim=1).unsqueeze(1)  # (64,1,768) 图像提示平均
+            prompt_parts = [t_prompt, i_prompt]
+        else:
+            prompt_parts = []
 
         # ---- 构建标签增强嵌入提示 ----
         # 依据检索邻居的标签 r_l_list (64,5)，查表得到每个邻居的类别嵌入，
         # 再对 K 个邻居求平均，得到 (64,768) 的标签提示，并扩展成 (64,1,768)
+        # 注：label_enhanced 是独立于 MIR/GA/SEA 三大消融组件之外的常驻模块，不受 use_sea 影响
         label_emb = self.label_enhanced[r_l_list]  # (64,5,768)
         label_emb = torch.mean(label_emb, dim=1)   # (64,768)
         label_emb = label_emb.view(-1, 1, self.hs) # (64,1,768)
+        prompt_parts = [label_emb] + prompt_parts  # 标签提示始终在最前面
 
         # ---- 第 3 步：模型训练（逐层前向） ----
         # 先把补全后的文本、图像表征沿序列维拼接
         output = torch.cat([text_emb, image_emb], dim=1)  # (64,273,768)
         for i, layer_module in enumerate(self.encoder_layer):
             if i == self.prompt_position:
-                # 在指定层，把 [标签提示, 文本提示, 图像提示] 拼到序列最前面
-                # 共 prompt_length*2+1 = 3 个提示 token
-                output = torch.cat([label_emb, t_prompt.unsqueeze(1), i_prompt.unsqueeze(1), output], dim=1)  # (64,276,768)
+                # 在指定层，把提示 token 拼到序列最前面
+                # SEA 开启时为 [标签提示, 文本提示, 图像提示] 共 3 个；关闭时只有标签提示 1 个
+                output = torch.cat(prompt_parts + [output], dim=1)  # (64,273+len(prompt_parts),768)
                 N = embedding.shape[0]  # int: 64
-                # 同步扩展 attention_mask，前 3 个位置为提示 token（全部有效，置 1）
-                attention_mask = torch.cat([torch.ones(N, self.prompt_length*2+1).to(self.device), attention_mask], dim=1)  # (64,276)
+                num_prompt_tokens = sum(p.shape[1] for p in prompt_parts)
+                # 同步扩展 attention_mask，前 num_prompt_tokens 个位置为提示 token（全部有效，置 1）
+                attention_mask = torch.cat([torch.ones(N, num_prompt_tokens).to(self.device), attention_mask], dim=1)
                 layer_outputs = layer_module(output, attention_mask=attention_mask)
-                output = layer_outputs[0]  # (64,276,768)
+                output = layer_outputs[0]
             else:
                 # 其余层正常前向
                 layer_outputs = layer_module(output, attention_mask=attention_mask)

@@ -55,6 +55,11 @@ def main():
         parser.add_argument('--prompt_position', type=int, default=0)                     # 动态提示（prompt）插入到 Transformer 的第几层
         parser.add_argument('--prompt_length', type=int, default=1)                       # 每类提示的 token 长度（文本提示/图像提示各 1 个）
         parser.add_argument('--dropout_rate', type=float, default=0.2)                    # MMG 模块中的 dropout 比例
+        # ---------- 消融开关（对应论文 Table2 的 MIR / GA / SEA 三大组件）----------
+        # 用 --no-use_xxx 关闭对应组件；默认全部为 True，与未加开关前的模型行为完全一致
+        parser.add_argument('--use_mir', action=argparse.BooleanOptionalAction, default=True)  # 是否用 MIR（检索重建缺失模态）
+        parser.add_argument('--use_ga', action=argparse.BooleanOptionalAction, default=True)   # 是否用 GA（锥域投影梯度对齐）
+        parser.add_argument('--use_sea', action=argparse.BooleanOptionalAction, default=True)  # 是否用 SEA（CAP 动态提示）
 
         # ---------- 数据参数（Data parameters） ----------
         parser.add_argument('--dataset', type=str, default="hatememes", choices=["hatememes", "mmimdb", "food101"])  # 数据集名称

@@ -62,6 +62,7 @@ class Trainer():
         self.dataset = args.dataset
         self.device = args.device
         self.missing_type = args.missing_type
+        self.use_ga = args.use_ga  # 消融开关：是否启用梯度对齐（GA 只在训练循环里生效，不在模型里）
         # 每次训练运行共用同一个时间戳/CSV 日志文件（而不是每个 epoch 各生成一个）
         self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         Path("./src/metrics").mkdir(parents=True, exist_ok=True)
@@ -80,8 +81,13 @@ class Trainer():
             vilt_weights=args.vilt_weights,
             prompt_position=args.prompt_position,
             prompt_length=args.prompt_length,
-            dropout_rate=args.dropout_rate)
+            dropout_rate=args.dropout_rate,
+            use_mir=args.use_mir,
+            use_sea=args.use_sea)
         self.model.to(self.device)
+        # 可训练参数列表在整个训练过程中不会变化（ANGA.freeze() 已在构造时冻结主干），
+        # 缓存一次，避免 _train 每个 batch 都重新扫描一遍全部参数
+        self.trainable_params = [p for p in self.model.parameters() if p.requires_grad]
 
 
         # ---- 构建 train / valid / test 三个 Dataset ----
@@ -127,6 +133,7 @@ class Trainer():
         _loader_kwargs = dict(
             pin_memory=(str(args.device).startswith("cuda")),
             persistent_workers=(args.num_workers > 0),
+            prefetch_factor=(4 if args.num_workers > 0 else None),
         )
         self.train_data_loader = DataLoader(
             dataset=train_dataset,
@@ -185,20 +192,25 @@ class Trainer():
         for epoch in range(self.epochs):
             print(f"{Fore.RED}Current Epoch: {epoch + 1}{Style.RESET_ALL}")
 
-            # 是否需要刷新：首次或每隔 REFRESH_EVERY 个 epoch 重新排序可靠样本
-            need_refresh = (pair_ent_id is None) or (epoch % REFRESH_EVERY == 0)
-            if need_refresh:
-                pair_ent_id = self._ranked_missing_samples()
+            # 消融：GA 关闭时不需要熵驱动课程学习（它只是为 GA 的锚点构建挑"可靠补全样本"），
+            # 直接跳过 _ranked_missing_samples 这次额外的全量前向，做朴素联合损失训练
+            if self.use_ga:
+                # 是否需要刷新：首次或每隔 REFRESH_EVERY 个 epoch 重新排序可靠样本
+                need_refresh = (pair_ent_id is None) or (epoch % REFRESH_EVERY == 0)
+                if need_refresh:
+                    pair_ent_id = self._ranked_missing_samples()
 
-            # ---- 线性课程：ratio 从 ratio_start 线性增长到 ratio_end ----
-            progress = epoch
-            t = min(progress / max(1, grow_epochs), 1.0)
-            ratio = ratio_start + (ratio_end - ratio_start) * t
-            # 取熵最低（最可靠）的前 ratio 比例的缺失样本 id，作为"锚点集合"
-            k = max(1, int(len(pair_ent_id) * ratio)) if pair_ent_id else 0
-            reliable_ids = set(id_ for _, id_ in pair_ent_id[:k]) if k > 0 else set()
-            print(f"{Fore.RED}Ratio={ratio:.2f}, Reliable_ids={len(reliable_ids)}{Style.RESET_ALL}")
-            self._train(reliable_ids)
+                # ---- 线性课程：ratio 从 ratio_start 线性增长到 ratio_end ----
+                progress = epoch
+                t = min(progress / max(1, grow_epochs), 1.0)
+                ratio = ratio_start + (ratio_end - ratio_start) * t
+                # 取熵最低（最可靠）的前 ratio 比例的缺失样本 id，作为"锚点集合"
+                k = max(1, int(len(pair_ent_id) * ratio)) if pair_ent_id else 0
+                reliable_ids = set(id_ for _, id_ in pair_ent_id[:k]) if k > 0 else set()
+                print(f"{Fore.RED}Ratio={ratio:.2f}, Reliable_ids={len(reliable_ids)}{Style.RESET_ALL}")
+                self._train(reliable_ids)
+            else:
+                self._train()
 
             # ========== 验证 and 早停 ==========
             val_metrics = self._valid(current_epoch=epoch + 1)
@@ -227,7 +239,10 @@ class Trainer():
                            预测已经很确信（熵低），因此被"提升"为完备样本，
                            参与锚点（g_C）的构建。
         """
-        loss_list =  []
+        # loss_sum/loss_count：GPU 上累加整个 epoch 的损失，epoch 结束时只做一次
+        # .item() 同步（而不是每个 batch 都同步一次），纯粹是提速，不改变数值
+        loss_sum = torch.zeros((), device=self.device)
+        loss_count = 0
         self.model.train()
         pbar = tqdm(self.train_data_loader, bar_format=f"{Fore.BLUE}{{l_bar}}{{bar}}{{r_bar}}", desc='Training')
         count_zero, count_inside, count_project = 0, 0, 0  # 统计三种梯度投影情况
@@ -239,6 +254,17 @@ class Trainer():
             batch_ids = inputs.pop('id')
             missing_mask = inputs['missing_mask']
             preds = self.model(**inputs)
+
+            # 消融：GA 关闭时不做梯度拆分/锥域投影，直接朴素联合损失训练
+            if not self.use_ga:
+                loss = compute_loss(preds, labels, reduction='mean')
+                loss_sum += loss.detach()
+                loss_count += 1
+                self.optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                self.optimizer.step()
+                self.scheduler.step()
+                continue
 
             # =================================================================
             # 1. 计算每个样本的损失（逐样本），并划分"完备集"与"缺失集"
@@ -253,7 +279,6 @@ class Trainer():
                     # 无课程学习：完备/缺失直接按原始 mask 划分
                     idx_complete_eff = idx_complete
                     idx_missing_eff = idx_missing
-                    num_promoted = 0
                 else:
                     # 有课程学习：把"缺失但被标记为可靠"的样本提升为完备样本
                     in_set = [i in reliable_ids for i in batch_ids]
@@ -262,12 +287,14 @@ class Trainer():
                     idx_complete_eff = idx_complete | (idx_missing & reliable_mask)
                     # 有效缺失集 = 缺失 ∩ 非可靠
                     idx_missing_eff = idx_missing & (~reliable_mask)
-                    num_promoted = (idx_missing & reliable_mask).sum().item()  # 单个batch中由补全样本转为完备样本的个数
 
                 # 分别求两类样本的平均损失（若某类为空则置 None）
                 LC = per_loss[idx_complete_eff].mean() if idx_complete_eff.any() else None
                 LM = per_loss[idx_missing_eff].mean() if idx_missing_eff.any() else None
-                loss_list.append(((0.0 if LC is None else float(LC)) + (0.0 if LM is None else float(LM))))
+                batch_loss = (LC if LC is not None else torch.zeros((), device=self.device)) + \
+                             (LM if LM is not None else torch.zeros((), device=self.device))
+                loss_sum += batch_loss.detach()
+                loss_count += 1
 
             elif self.missing_type == "Both":
                 # ---- 双模态缺失：mask==2 完备，mask==1 缺图像，mask==0 缺文本 ----
@@ -281,7 +308,6 @@ class Trainer():
                 if reliable_ids is None or len(reliable_ids) == 0:
                     idx_complete_eff = idx_complete
                     idx_missing_eff = idx_missing_union
-                    num_promoted = 0
                 else:
                     in_set = [i in reliable_ids for i in batch_ids]
                     reliable_mask = torch.tensor(in_set, device=self.device, dtype=torch.bool)
@@ -289,16 +315,18 @@ class Trainer():
                     idx_complete_eff = idx_complete | (idx_missing_union & reliable_mask)
                     # 有效缺失集 = 缺失并集 ∩ 非可靠
                     idx_missing_eff = idx_missing_union & (~reliable_mask)
-                    num_promoted = (idx_missing_union & reliable_mask).sum().item()  # 单个batch中由补全样本转为完备样本的个数
 
                 LC = per_loss[idx_complete_eff].mean() if idx_complete_eff.any() else None
                 LM = per_loss[idx_missing_eff].mean() if idx_missing_eff.any() else None
-                loss_list.append(((0.0 if LC is None else float(LC)) + (0.0 if LM is None else float(LM))))
+                batch_loss = (LC if LC is not None else torch.zeros((), device=self.device)) + \
+                             (LM if LM is not None else torch.zeros((), device=self.device))
+                loss_sum += batch_loss.detach()
+                loss_count += 1
 
             # =================================================================
             # 2. 梯度拆分：分别求完备样本梯度 g_C 与缺失样本梯度 g_M
             # =================================================================
-            trainable = [p for p in self.model.parameters() if p.requires_grad]
+            trainable = self.trainable_params  # 训练全程不变，构造时已缓存，避免每个 batch 都重新扫描
 
             # 先清零，反传 L_C 得到 g_C（retain_graph 保留计算图供后面 L_M 使用）
             self.optimizer.zero_grad(set_to_none=True)
@@ -390,8 +418,9 @@ class Trainer():
             self.optimizer.step()
             self.scheduler.step()
 
-        print(f"{Fore.BLUE}Train: Loss: {np.mean(loss_list):.4f}{Style.RESET_ALL}")
-        print(f"{Fore.BLUE}Stats: Zero={count_zero}, Inside={count_inside}, Project={count_project}{Style.RESET_ALL}")
+        print(f"{Fore.BLUE}Train: Loss: {(loss_sum / max(1, loss_count)).item():.4f}{Style.RESET_ALL}")
+        if self.use_ga:
+            print(f"{Fore.BLUE}Stats: Zero={count_zero}, Inside={count_inside}, Project={count_project}{Style.RESET_ALL}")
 
     def _valid(self, current_epoch=None):
         """验证阶段：在 valid 集上计算 AUROC/ACC（区分完整样本与缺失样本）。"""
