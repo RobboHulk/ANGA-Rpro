@@ -17,11 +17,19 @@ Python venv（`/root/autodl-tmp/ANGA_venv`），依赖见 [`requirements.txt`](.
 | 3 | `4201dd9` | `train.py` 的 `--device` 默认值 `cuda:4`→`cuda:0`；`utils/core_tools.py` 的 `MCR.device` 硬编码 `cuda:5`→按 `torch.cuda.is_available()` 判断，默认 `cuda:0` | 作者原机器是多卡（用到了 4/5 号卡），这台服务器只有单卡 `cuda:0`，硬编码的卡号会直接报 "invalid device ordinal" |
 | 4 | `7c5c8ad` | `Trainer.__init__` 里新增 `Path("./src/metrics").mkdir(...)`，并把生成 CSV 文件名用的时间戳从"每次调用 `_valid()` 重新生成"改成"整次训练运行共用一个（`self.run_timestamp`）" | 原代码从未创建 `src/metrics/` 目录，第一次验证后写 CSV 直接 `FileNotFoundError` 崩溃；另外原逻辑每个 epoch 都用当前时间重新生成文件名，导致 20 个 epoch 会散落成 20 个各只有 1 行的 CSV，而不是一份完整的逐 epoch 记录 |
 | 5 | `53b93dd` | `EarlyStopping.save_checkpoint()` 里 `torch.save` 之前加 `os.makedirs(os.path.dirname(self.path), exist_ok=True)` | 同类问题：`checkpoints` 目录不存在，第一次验证指标提升触发保存时崩溃 |
+| 6 | `4201dd9`（同上）/ 后续 | `train.py`/`core_tools.py` 里另外两处硬编码 GPU 卡号（`--device` 默认 `cuda:4`、`MCR.device` 硬编码 `cuda:5`）统一改为 `cuda:0` | 开卡后这台服务器是单卡，硬编码卡号会直接报设备越界 |
+| 7 | `29c5de6` | 新增 `--use_mir/--use_ga/--use_sea` 三个消融开关（`argparse.BooleanOptionalAction`，默认全 True＝行为与之前完全一致），分别对应论文 Table2 的 MIR（检索重建，关闭后用零向量占位）/ GA（锥域投影梯度对齐，关闭后训练循环退化成朴素联合损失）/ SEA（CAP 动态提示，关闭后只保留 label_enhanced 提示 token，且提示 token 数改为按实际拼接张量算而不是硬编码 `prompt_length*2+1`，避免重蹈原代码 `prompt_length` 参数那类离奇 bug）。同批附带几项不改变训练数学的提速：去掉 4 处从未被读取的 `num_promoted=...item()` 死代码同步、loss 累加从"每 batch 同步一次"改成"整个 epoch 结束才同步一次"、`Trainer.trainable_params` 只在构造时算一次、`get_optim` 里给 AdamW 加 `fused=True`、`HatememesDataset` 把图片解码结果和记忆库 `.npy` 特征都预加载缓存进内存（避免每个 epoch 重复读盘） | 完成消融实验范围需要真正的开关（原代码三个组件都是硬编码常开）；提速部分是本节最后"训练提速"用户需求的落地 |
+| 8 | `785fbcb` | 修正 `get_optim` 的 `fused=True` 判断条件，额外排除复数张量 | `MMG.W` 是 `torch.cfloat` 复数参数，fused AdamW 不支持复数，MIR 开启时第一次 `optimizer.step()` 就报 `RuntimeError`；判断改成按模型实际参数动态算（MIR 关闭时没有 MMG，仍能用上 fused） |
+| 9 | `03c28e6` | 撤销 `DataLoader(prefetch_factor=4)` 这一项提速 | 这台服务器进程 `ulimit -n`（open files）只有 1024，3 个 DataLoader × 16 个常驻 worker × 更深的预取队列，把跨进程共享内存传张量用的文件描述符耗尽，导致训练到第 2 个 epoch 报 `BrokenPipeError`；原本默认的 `prefetch_factor=2` 已经稳定跑过多次，收益不值得冒这个风险 |
+
+**验证"提速改动没有改变训练结果"**：把 `use_mir/use_ga/use_sea` 全部保持默认 True，重跑一次 HateMemes/Text/0.7（与实验 2 完全相同的超参数与随机种子），最终测试集 AUROC = **0.6693**，与实验 2 原始结果 **0.6692** 几乎完全一致（差 0.0001）。注意：这份代码没有开 `torch.use_deterministic_algorithms`/`cudnn.deterministic`，GPU 训练本身不是逐比特可复现的——即使代码完全不变、种子相同，重跑一次每个 epoch 的具体数值也会有几个点的正常波动（这次重跑的早停轮次、逐 epoch 曲线都与原始跑法不同），但最终收敛质量高度一致，可以确认提速改动没有引入真实的行为差异。
 
 **环境搭建过程中额外发现、但未改代码、仅记录避坑经验的点**（详见对话记录，此处不重复展开）：
 - AutoDL 免卡模式容器的 cgroup 内存上限只有 2GB（`nvidia-smi`/`free -h` 显示的宿主机数值具有误导性），大文件 `pip install`（如 torch 768MB wheel）容易被 OOM 杀死；解法是本地 `curl` 流式下载 wheel 后 `pip install --no-deps` 本地文件，CUDA 子依赖再单独 `pip install torch==<ver> --index-url ...`（此时不加 `--no-deps`）。开卡（挂载 GPU）后该限制解除（cgroup 上限变为 ~120GB）。
 - `huggingface.co` 直连从服务器超时，`hf-mirror.com` 直连可用；`download.pytorch.org` 可直连。
 - `MemoryBankGenerator` / `MCR`（`init_data.py` 阶段②③）目前**硬编码只支持 HateMemes**（`self.dataset = 'hatememes'`、图片后缀写死 `.png`），要跑 MM-IMDb / Food101 的阶段②③需要先改这两处。
+- AutoDL 数据盘（`/root/autodl-tmp`）容量有限，跑记忆库生成（阶段②）前务必先估算所需空间（HateMemes 记忆库约 8.2GB，MM-IMDb 约 21GB，Food101 约 74GB）。
+- 这台服务器进程 `ulimit -n` 只有 1024，DataLoader 相关的多进程/多 worker 调参（`num_workers`、`prefetch_factor`）要留意文件描述符上限，不能无脑调大。
 
 ---
 
