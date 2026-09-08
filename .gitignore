@@ -9,6 +9,11 @@ logs/
 *.pt
 *.pth
 
+# Reproduction run artifacts (checkpoints/logs/metrics per run; summarized in
+# docs/REPRODUCTION_LOG.md instead of committing the raw files)
+results_archive/
+src/metrics/
+
 # Python
 __pycache__/
 *.pyc
