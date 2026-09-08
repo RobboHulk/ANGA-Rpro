@@ -73,8 +73,8 @@ class Food101Dataset(torch.utils.data.Dataset):
         #   把它们的图像特征与文本特征都取出来，供 MMG 重建缺失的文本模态。
         # ---------------------------------------------------------------------
         if self.missing_type == "Text" and self.missing_mask_list[index] == 0:
-            text = "I love deep learning" * 1024     # 用占位文本"填充"缺失文本
-            i2i_list = self.i2i_list[index]          # 该样本的 i2i 相似样本 id 列表
+            text = "I love deep learning" * 1024     # 用占位文本"填充"缺失文本（满足前向的结构需求，实际不会进encoder）
+            i2i_list = self.i2i_list[index]          # 该样本的 i2i 相似样本 id 列表  
 
             for i in i2i_list[:k]:
                 r_i = np.load(fr'dataset/memory_bank/food101/image/{i}.npy')
@@ -119,6 +119,7 @@ class Food101Dataset(torch.utils.data.Dataset):
         # 情况 4：双模态缺失 = Both，且该样本【缺失文本】(mask == 0)
         # ---------------------------------------------------------------------
         elif self.missing_type == "Both" and self.missing_mask_list[index] == 0:
+            # 用占位文本"填充"缺失文本（满足前向的结构需求，实际不会进encoder）
             text = "I love deep learning" * 1024
             i2i_list = self.i2i_list[index]
             for i in i2i_list[:k]:

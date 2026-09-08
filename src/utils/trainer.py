@@ -122,12 +122,19 @@ class Trainer():
         collator = Collator(max_text_len=args.max_text_len)
 
         # ---- 三个 DataLoader：训练集 shuffle，验证/测试集不 shuffle ----
+        # pin_memory + persistent_workers：减少 host->GPU 拷贝开销与每 epoch 重复
+        # fork/销毁 worker 进程的固定开销（仅在 num_workers>0 且用 CUDA 时生效）。
+        _loader_kwargs = dict(
+            pin_memory=(str(args.device).startswith("cuda")),
+            persistent_workers=(args.num_workers > 0),
+        )
         self.train_data_loader = DataLoader(
             dataset=train_dataset,
             batch_size=args.batch_size,
             collate_fn=collator,
             num_workers=args.num_workers,
-            shuffle=True
+            shuffle=True,
+            **_loader_kwargs
         )
 
         self.valid_data_loader = DataLoader(
@@ -135,7 +142,8 @@ class Trainer():
             batch_size=args.batch_size,
             collate_fn=collator,
             num_workers=args.num_workers,
-            shuffle=False
+            shuffle=False,
+            **_loader_kwargs
         )
 
         self.test_data_loader = DataLoader(
@@ -143,7 +151,8 @@ class Trainer():
             batch_size=args.batch_size,
             collate_fn=collator,
             num_workers=args.num_workers,
-            shuffle=False
+            shuffle=False,
+            **_loader_kwargs
         )
 
         # ---- 优化器与学习率调度器 ----
